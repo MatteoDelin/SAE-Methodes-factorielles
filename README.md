@@ -1,1 +1,1 @@
-# SAE-M-thodes-factorielles
+# SAE-Methodes-factorielles
