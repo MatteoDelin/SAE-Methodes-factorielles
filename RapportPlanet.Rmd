@@ -1,0 +1,26 @@
+---
+title: "Rapport Planet"
+output: html_document
+date: "2026-03-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+```
+
+```{r}
+planet = read_xlsx("PlanetDataSet.xlsx", sheet = "nasa_exoplanet_intelligence")
+
+vide = apply(planet, MARGIN = 1, function(x){sum(is.na(x))})
+sup = c()
+
+for (i in 1:6150){
+  if (vide[i]>=1){
+    sup=c(sup,i)
+  }
+}
+
+planet=planet[-sup,]
+```
+
