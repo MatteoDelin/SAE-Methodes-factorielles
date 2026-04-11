@@ -5,22 +5,63 @@ date: "2026-03-26"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 library(readxl)
+library(FactoMineR)
 ```
 
-```{r}
-planet = read_xlsx("PlanetDataSet.xlsx", sheet = "nasa_exoplanet_intelligence")
+## 1. Import des données
 
-vide = apply(planet, MARGIN = 1, function(x){sum(is.na(x))})
-sup = c()
+```{r import}
+planet <- read_xlsx("PlanetDataSet.xlsx", sheet = "nasa_exoplanet_intelligence")
 
-for (i in 1:6150){
-  if (vide[i]>=1){
-    sup=c(sup,i)
+cat("Dimensions initiales :", nrow(planet), "lignes x", ncol(planet), "colonnes\n")
+```
+
+## 2. Nettoyage : suppression des lignes incomplètes
+
+```{r nettoyage}
+vide <- apply(planet, MARGIN = 1, function(x) { sum(is.na(x)) })
+
+sup <- c()
+for (i in 1:nrow(planet)) {
+  if (vide[i] >= 1) {
+    sup <- c(sup, i)
   }
 }
 
-planet=planet[-sup,]
+planet <- planet[-sup, ]
+
+cat("Dimensions après suppression des NA :", nrow(planet), "lignes\n")
 ```
 
+## 3. Sélection des variables
+
+```{r}
+res.pca = PCA(planet,quali.sup = c("planet_name", "host_star","planet_type"), scale.unit = TRUE, graph = FALSE, ncp = 3)
+## Valeur propre et le pourcentage d'information portée
+res.pca$eig
+```
+
+```{r}
+for (i in 1:3){
+  fviz_contrib(res.pca, choice = "var", axes = i) 
+}
+```
+
+
+```{r}
+fviz_eig(res.pca) ## L'éboulie des valeurs propres
+```
+On garde les dimensions 1 à 3
+
+```{r}
+## Composition des dimension pour leur valeur propre
+res.pca$var$contrib
+fviz_pca_var(res.pca,axes = c(1,2))
+fviz_pca_var(res.pca,axes = c(1,3))
+fviz_pca_var(res.pca,axes = c(2,3))
+```
+La dimension une est principalement expliqué par les différentes propriété des étoiles
+La dimension deux est principalement expliqué par les propriété orbital de la planètes
+la dimension trois est principalement epxliqué par les même proriété que l'axe 2
