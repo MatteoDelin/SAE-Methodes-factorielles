@@ -68,15 +68,49 @@
 
 ## 🔧 Pré-traitement des données
 
-### Stratégie de nettoyage
-Le nettoyage a été réalisé en **deux étapes** pour minimiser la perte d'observations :
+### Étape 1 — Exploration visuelle par histogrammes
 
-1. **Sélection des variables** — on ne conserve que les 10 variables actives pertinentes pour la problématique + les 3 variables illustratives. Les colonnes très lacunaires (`equilibrium_temp_k`, `star_age_gyr`) sont exclues dès cette étape.
+Avant tout nettoyage, on trace les histogrammes de **toutes les variables numériques brutes**. Cette étape sert à justifier empiriquement chaque décision d'inclusion ou d'exclusion, plutôt que de simplement la décréter.
 
-2. **Suppression des NA** — `na.omit()` est appliqué uniquement sur le sous-ensemble sélectionné, ce qui préserve beaucoup plus de lignes qu'un nettoyage global.
+Conclusions tirées des histogrammes :
 
-### Pourquoi pas un nettoyage global ?
-Supprimer toutes les lignes ayant au moins 1 NA sur les 20 colonnes initiales revient à perdre plus de 75% des observations, car les valeurs manquantes sont réparties sur de nombreuses colonnes différentes. La sélection préalable des variables est donc indispensable.
+| Variable | Observation | Décision |
+|---|---|---|
+| `equilibrium_temp_k` | Histogramme très lacunaire (~25% de NA) | ❌ Exclue |
+| `star_age_gyr` | Histogramme très lacunaire (~21% de NA) | ❌ Exclue |
+| `n_stars`, `n_planets` | Barre écrasée sur 1, quasi-constantes | ❌ Exclues |
+| `ra`, `dec` | Aucune structure interprétable, hors problématique | ❌ Exclues |
+| `star_vmag` | Dépend de la distance à la Terre, pas intrinsèque | ❌ Exclue |
+| `orbital_period_days` | Distribution en "queue de comète", outliers extrêmes | ⚠️ Transformation log |
+| `semi_major_axis_au` | Idem | ⚠️ Transformation log |
+| `planet_mass_earth` | Idem | ⚠️ Transformation log |
+| `planet_radius_earth` | Idem | ⚠️ Transformation log |
+| Autres variables actives | Distributions exploitables | ✅ Conservées |
+
+### Étape 2 — Transformation logarithmique
+
+Quatre variables présentent des distributions **très asymétriques** avec des valeurs extrêmes très éloignées de la majorité (ex : `orbital_period_days` va de 0,09 jours à 400 millions de jours). Ces outliers risquent de **polluer l'ACP** en tirant artificiellement un axe entier vers eux.
+
+On applique `log1p(x)` = `log(x + 1)` sur ces variables. Le `+1` évite `log(0)` qui est indéfini.
+
+**Effet concret sur `orbital_period_days` :**
+
+| Valeur réelle (jours) | Après log1p |
+|---|---|
+| 1 | 0,69 |
+| 100 | 4,61 |
+| 10 000 | 9,21 |
+| 400 000 000 | 19,81 |
+
+Le log compresse les grandes valeurs et raisonne en **ordres de grandeur**. Après transformation, les histogrammes deviennent bien plus symétriques.
+
+> **Note :** La transformation log et le centrage-réduction (`scale.unit`) sont complémentaires. Le log corrige la **forme** de la distribution ; le centrage-réduction harmonise les **échelles**. Un outlier extrême reste un outlier même après centrage-réduction — seul le log corrige vraiment le problème.
+
+### Étape 3 — Sélection des variables et nettoyage ciblé
+
+On sélectionne d'abord les variables pertinentes, **puis** on supprime les NA — et non l'inverse.
+
+**Pourquoi cet ordre ?** Supprimer les NA sur les 20 colonnes initiales revient à perdre plus de 75% des observations, car les valeurs manquantes sont réparties sur de nombreuses colonnes. En ne travaillant que sur les 10 variables actives retenues, on minimise drastiquement la perte de lignes.
 
 ---
 
@@ -92,16 +126,29 @@ Supprimer toutes les lignes ayant au moins 1 NA sur les 20 colonnes initiales re
 L'ACP est la méthode naturelle ici car elle permet d'explorer les **corrélations entre variables quantitatives** et de réduire la dimensionnalité, ce qui correspond directement à notre problématique.
 
 ### Paramètres de l'ACP
+
 - **Librairie :** `FactoMineR` (R)
-- **`scale.unit = TRUE`** : les variables sont centrées-réduites (indispensable car les unités sont très hétérogènes — jours, kelvin, masses solaires…)
 - **`ncp = 5`** : on conserve 5 dimensions pour l'exploration initiale
 - **Variables illustratives qualitatives :** `planet_type` (n'entre pas dans le calcul, sert à colorier les graphiques)
+
+#### `scale.unit = TRUE` — Centrage et réduction
+
+Cette option centre et réduit chaque variable : **moyenne = 0, écart-type = 1**.
+
+C'est indispensable ici car les variables ont des unités très hétérogènes (jours, kelvin, masses solaires, sans unité…). Sans cette option, l'ACP maximise la variance totale et se focalise mécaniquement sur les variables avec les plus grandes valeurs absolues — pas parce qu'elles sont plus corrélées, mais simplement parce que leurs chiffres sont plus grands.
+
+| | Sans `scale.unit` | Avec `scale.unit = TRUE` |
+|---|---|---|
+| Matrice analysée | Covariance | **Corrélation** |
+| Influence des unités | ✅ Oui (biais) | ❌ Non (neutre) |
+| Variables dominantes | Celles avec grande variance brute | Toutes équivalentes |
+| Recommandé ici | ❌ | ✅ |
 
 ### Critères de sélection des axes
 Trois critères complémentaires sont utilisés :
 1. **Valeur propre > 1** (critère de Kaiser)
 2. **Inertie cumulée ≥ 60%** (ou 85% selon le critère retenu)
-3. **Coude sur l'éboulis** des valeurs propres
+3. **Coude visuel sur l'éboulis** des valeurs propres
 
 ---
 
@@ -112,6 +159,9 @@ library(readxl)      # Import du fichier Excel
 library(FactoMineR)  # ACP
 library(factoextra)  # Visualisations (fviz_eig, fviz_pca_var, etc.)
 library(corrplot)    # Matrice de corrélation
+library(ggplot2)     # Histogrammes d'exploration
+library(tidyr)       # Mise en format long (pivot_longer)
+library(dplyr)       # Manipulation des données (select, etc.)
 ```
 
 ---
@@ -124,31 +174,38 @@ Rapport_Planet.Rmd
 ├── 1. Import des données
 │   └── read_xlsx()
 │
-├── 2. Sélection des variables pertinentes
+├── 2. Exploration visuelle — histogrammes bruts
+│   ├── Histogrammes de toutes les variables numériques
+│   └── Justification empirique des exclusions et transformations
+│
+├── 3. Transformations log
+│   ├── log1p() sur orbital_period_days, semi_major_axis_au
+│   │            planet_mass_earth, planet_radius_earth
+│   └── Histogrammes après transformation (vérification)
+│
+├── 4. Sélection des variables et nettoyage ciblé
 │   ├── 5 variables planète (actives)
 │   ├── 5 variables étoile (actives)
-│   └── 3 variables qualitatives (illustratives)
+│   ├── 3 variables qualitatives (illustratives)
+│   └── na.omit() sur le sous-ensemble sélectionné uniquement
 │
-├── 3. Nettoyage ciblé
-│   └── na.omit() sur le sous-ensemble sélectionné
-│
-├── 4. Analyse des corrélations
+├── 5. Matrice de corrélation
 │   └── corrplot() — détection de variables redondantes ou dégénérées
 │
-├── 5. ACP
-│   └── PCA() avec planet_type en quali.sup
+├── 6. ACP
+│   └── PCA() avec scale.unit=TRUE et planet_type en quali.sup
 │
-├── 6. Eboulis des valeurs propres
+├── 7. Eboulis des valeurs propres
 │   └── fviz_eig() — choix du nombre de dimensions
 │
-├── 7. Contributions des variables
+├── 8. Contributions des variables
 │   ├── res.pca$var$contrib
 │   └── fviz_contrib() par axe (axes 1, 2, 3)
 │
-├── 8. Cercles de corrélation
+├── 9. Cercles de corrélation
 │   └── fviz_pca_var() — plans (1,2) et (1,3)
 │
-└── 9. Graphe des individus
+└── 10. Graphe des individus
     ├── fviz_pca_ind() — coloré par planet_type
     └── fviz_pca_biplot() — variables + individus superposés
 ```
@@ -160,6 +217,7 @@ Rapport_Planet.Rmd
 - **`print()` obligatoire dans les boucles** : en R Markdown, les graphiques générés dans une boucle `for` ne s'affichent pas sans `print()`.
 - **`factoextra` doit être chargé** dans le chunk `setup` pour que les fonctions `fviz_*` soient disponibles.
 - **Les variables actives doivent toutes être numériques** : `planet_name`, `host_star` et `planet_type` sont passées en supplémentaires qualitatives.
+- **Appliquer les transformations log AVANT le nettoyage** : elles portent sur le dataset complet, pas seulement sur le sous-ensemble sélectionné.
 
 ---
 

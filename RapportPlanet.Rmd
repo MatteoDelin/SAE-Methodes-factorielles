@@ -10,17 +10,83 @@ library(readxl)
 library(FactoMineR)
 library(factoextra)
 library(corrplot)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
 ```
 
 ## 1. Import des données
+
 ```{r import}
 planet <- read_xlsx("PlanetDataSet.xlsx", sheet = "nasa_exoplanet_intelligence")
 cat("Dimensions initiales :", nrow(planet), "lignes x", ncol(planet), "colonnes\n")
 ```
 
-## 2. Sélection des variables pertinentes
+## 2. Exploration visuelle — histogrammes de toutes les variables
+
+On trace les histogrammes de toutes les variables numériques AVANT tout nettoyage
+pour justifier empiriquement les choix d'inclusion et d'exclusion.
+
+```{r histogrammes_bruts, fig.height=12, fig.width=14}
+vars_num <- names(planet)[sapply(planet, is.numeric)]
+
+planet %>%
+  select(all_of(vars_num)) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "valeur") %>%
+  ggplot(aes(x = valeur)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 40, na.rm = TRUE) +
+  facet_wrap(~ variable, scales = "free", ncol = 4) +
+  theme_minimal() +
+  labs(title = "Distribution brute de toutes les variables numériques",
+       x = "", y = "Effectif")
+```
+
+### Conclusions des histogrammes
+
+Variables exclues pour raisons statistiques :
+- `equilibrium_temp_k` (~25% de NA) et `star_age_gyr` (~21% de NA) :
+  histogrammes lacunaires, inclure ces variables forcerait à perdre trop d'observations
+- `n_stars` et `n_planets` : distributions quasi-constantes (écrasées sur 1),
+  variance trop faible pour contribuer à l'ACP
+- `ra` et `dec` : coordonnées célestes sans lien avec la problématique
+- `star_vmag` : magnitude visuelle dépendant de la distance à la Terre,
+  pas une propriété intrinsèque de l'étoile
+
+Variables nécessitant une transformation log :
+- `orbital_period_days`, `semi_major_axis_au`, `planet_mass_earth`, `planet_radius_earth` :
+  distributions très asymétriques avec valeurs extrêmes, la transformation log
+  les rend plus symétriques et limite l'influence des outliers sur l'ACP
+
+## 3. Transformations log des variables asymétriques
+
+```{r log_transform}
+planet$orbital_period_days <- log1p(planet$orbital_period_days)
+planet$semi_major_axis_au  <- log1p(planet$semi_major_axis_au)
+planet$planet_mass_earth   <- log1p(planet$planet_mass_earth)
+planet$planet_radius_earth <- log1p(planet$planet_radius_earth)
+```
+
+```{r histogrammes_apres_log, fig.height=6, fig.width=14}
+vars_log <- c("orbital_period_days", "semi_major_axis_au",
+              "planet_mass_earth", "planet_radius_earth")
+
+planet %>%
+  select(all_of(vars_log)) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "valeur") %>%
+  ggplot(aes(x = valeur)) +
+  geom_histogram(fill = "darkorange", color = "white", bins = 40, na.rm = TRUE) +
+  facet_wrap(~ variable, scales = "free", ncol = 4) +
+  theme_minimal() +
+  labs(title = "Distribution après transformation log",
+       x = "", y = "Effectif")
+```
+
+## 4. Sélection des variables et nettoyage ciblé
+
+On sélectionne d'abord les variables pertinentes pour la problématique,
+PUIS on supprime les NA — et non l'inverse — pour minimiser la perte d'observations.
+
 ```{r selection}
-# Variables actives (quantitatives, en lien avec la problématique)
 vars_actives <- c(
   # Propriétés de la planète
   "orbital_period_days", "planet_radius_earth", "planet_mass_earth",
@@ -30,84 +96,111 @@ vars_actives <- c(
   "star_metallicity", "star_surface_gravity"
 )
 
-# Variables illustratives qualitatives
 vars_quali <- c("planet_name", "host_star", "planet_type")
 
-planet_sel <- planet[, c(vars_quali, vars_actives)]
-cat("Dimensions après sélection :", nrow(planet_sel), "lignes x", ncol(planet_sel), "colonnes\n")
-```
-
-## 3. Nettoyage ciblé
-```{r nettoyage}
+planet_sel   <- planet[, c(vars_quali, vars_actives)]
 planet_clean <- na.omit(planet_sel)
-cat("Dimensions après suppression des NA :", nrow(planet_clean), "lignes\n")
-cat("Lignes perdues :", nrow(planet_sel) - nrow(planet_clean), "\n")
+
+cat("Lignes initiales       :", nrow(planet), "\n")
+cat("Après sélection        :", nrow(planet_sel), "\n")
+cat("Après suppression NA   :", nrow(planet_clean), "\n")
+cat("Lignes perdues         :", nrow(planet_sel) - nrow(planet_clean), "\n")
 ```
 
-## 4. Analyse des corrélations
-```{r corrplot}
-# On vérifie les corrélations avant l'ACP
-corrplot(cor(planet_clean[, vars_actives]), 
-         method = "color", 
-         type = "upper",
+## 5. Matrice de corrélation
+
+Avant l'ACP, on visualise les corrélations pour repérer d'éventuelles
+variables redondantes ou dégénérées.
+
+```{r corrplot, fig.height=7, fig.width=7}
+corrplot(cor(planet_clean[, vars_actives]),
+         method = "color",
+         type   = "upper",
          tl.cex = 0.8,
-         title = "Matrice de corrélation des variables actives",
-         mar = c(0,0,1,0))
+         addCoef.col = "black",
+         number.cex  = 0.6,
+         title  = "Matrice de corrélation des variables actives",
+         mar    = c(0, 0, 1, 0))
 ```
 
-## 5. ACP
+## 6. ACP
+
+`scale.unit = TRUE` centre et réduit toutes les variables (moyenne = 0, écart-type = 1).
+C'est indispensable ici car les variables ont des unités très différentes
+(jours, kelvin, masses solaires...). Sans cette option, les variables avec les plus
+grandes valeurs absolues domineraient artificiellement l'ACP, indépendamment
+de toute corrélation réelle.
+
 ```{r acp}
 res.pca <- PCA(planet_clean[, c(vars_actives, "planet_type")],
-               quali.sup = "planet_type",   # variable quali illustrative
+               quali.sup  = "planet_type",
                scale.unit = TRUE,
-               ncp = 5,
-               graph = FALSE)
+               ncp        = 5,
+               graph      = FALSE)
 
 res.pca$eig
 ```
 
-## 6. Eboulis des valeurs propres
+## 7. Eboulis des valeurs propres
+
+Trois critères pour choisir le nombre de dimensions à retenir :
+1. Valeur propre > 1 (critère de Kaiser)
+2. Inertie cumulée >= 60%
+3. Coude visuel sur l'éboulis
+
 ```{r eboulis}
-fviz_eig(res.pca, addlabels = TRUE, ncp = 10, 
+fviz_eig(res.pca, addlabels = TRUE, ncp = 10,
          main = "Eboulis des valeurs propres")
 ```
 
-## 7. Contribution des variables
+## 8. Contribution des variables par axe
+
+Plus le score est élevé, plus la variable contribue à construire cet axe.
+La ligne rouge indique la contribution moyenne attendue si toutes les variables
+contribuaient également (1/nb_variables * 100).
+
 ```{r contrib}
 res.pca$var$contrib
 
-# Contribution par axe
 for (i in 1:3) {
   print(fviz_contrib(res.pca, choice = "var", axes = i,
-                     title = paste("Contribution des variables - Axe", i)))
+                     title = paste("Contribution des variables — Axe", i)))
 }
 ```
 
-## 8. Cercles de corrélation
-```{r cercles}
+## 9. Cercles de corrélation
+
+Sur le cercle de corrélation :
+- Une flèche proche du bord du cercle = variable bien représentée sur ce plan
+- Deux flèches dans la même direction = variables corrélées positivement
+- Deux flèches opposées = variables corrélées négativement
+- Deux flèches perpendiculaires = variables indépendantes
+
+```{r cercles, fig.height=6, fig.width=12}
 fviz_pca_var(res.pca, axes = c(1, 2),
              col.var = "contrib",
-             repel = TRUE,
-             title = "Cercle de corrélation - Axes 1 & 2")
+             repel   = TRUE,
+             title   = "Cercle de corrélation — Axes 1 & 2")
 
 fviz_pca_var(res.pca, axes = c(1, 3),
              col.var = "contrib",
-             repel = TRUE,
-             title = "Cercle de corrélation - Axes 1 & 3")
+             repel   = TRUE,
+             title   = "Cercle de corrélation — Axes 1 & 3")
 ```
 
-## 9. Graphe des individus
-```{r individus}
-fviz_pca_ind(res.pca, 
+## 10. Graphe des individus
+
+```{r individus, fig.height=6, fig.width=10}
+fviz_pca_ind(res.pca,
              habillage = "planet_type",
-             label = "none",
-             alpha.ind = 0.5,
-             title = "Individus colorés par type de planète")
+             label     = "none",
+             alpha.ind = 0.4,
+             title     = "Individus colorés par type de planète")
 
 fviz_pca_biplot(res.pca,
                 col.ind = planet_clean$planet_type,
                 col.var = "black",
-                label = "var",
-                repel = TRUE,
-                title = "Biplot")
+                label   = "var",
+                repel   = TRUE,
+                title   = "Biplot — variables et individus")
 ```
