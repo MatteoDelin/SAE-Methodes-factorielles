@@ -18,7 +18,8 @@ library(dplyr)
 ## 1. Import des données
 
 ```{r import}
-planet <- read_xlsx("PlanetDataSet.xlsx", sheet = "nasa_exoplanet_intelligence")
+planet <- read_xlsx("PlanetDataSet (pretraitement).xlsx",
+                    sheet = "nasa_exoplanet_intelligence")
 cat("Dimensions initiales :", nrow(planet), "lignes x", ncol(planet), "colonnes\n")
 ```
 
@@ -27,29 +28,42 @@ cat("Dimensions initiales :", nrow(planet), "lignes x", ncol(planet), "colonnes\
 ```{r traduction}
 planet <- planet %>%
   rename(
-    # Variables qualitatives / identifiants
-    nom_planete            = planet_name,
-    etoile_hote            = host_star,
-    nb_etoiles             = n_stars,
-    nb_planetes            = n_planets,
-    type_planete           = planet_type,
+    # Identifiants
+    nom_planete              = planet_name,
+    etoile_hote              = host_star,
+    nb_etoiles               = n_stars,
+    nb_planetes              = n_planets,
+    # Découverte
+    methode_decouverte       = discovery_method,
+    annee_decouverte         = disc_year,
+    installation_decouverte  = disc_facility,
     # Propriétés de la planète
-    periode_orbitale_jours = orbital_period_days,
-    rayon_planete_terre    = planet_radius_earth,
-    masse_planete_terre    = planet_mass_earth,
-    temp_equilibre_k       = equilibrium_temp_k,
-    excentricite_orbitale  = orbital_eccentricity,
-    demi_grand_axe_ua      = semi_major_axis_au,
+    periode_orbitale_jours   = orbital_period_days,
+    rayon_planete_terre      = planet_radius_earth,
+    masse_planete_terre      = planet_mass_earth,
+    temp_equilibre_k         = equilibrium_temp_k,
+    excentricite_orbitale    = orbital_eccentricity,
+    demi_grand_axe_ua        = semi_major_axis_au,
     # Propriétés de l'étoile
-    temp_etoile_k          = star_temp_k,
-    rayon_etoile_soleil    = star_radius_sun,
-    masse_etoile_soleil    = star_mass_sun,
-    age_etoile_gyr         = star_age_gyr,
-    gravite_surface_etoile = star_surface_gravity,
-    metallicite_etoile     = star_metallicity,
-    magnitude_visuelle     = star_vmag,
-    ascension_droite       = ra,
-    declinaison            = dec
+    temp_etoile_k            = star_temp_k,
+    rayon_etoile_soleil      = star_radius_sun,
+    masse_etoile_soleil      = star_mass_sun,
+    age_etoile_gyr           = star_age_gyr,
+    gravite_surface_etoile   = star_surface_gravity,
+    metallicite_etoile       = star_metallicity,
+    distance_terre_pc        = dist_from_earth_pc,
+    magnitude_visuelle       = star_vmag,
+    ascension_droite         = ra,
+    declinaison              = dec,
+    # Flags et catégories
+    planete_controversee     = controversial_flag,
+    type_planete             = planet_type,
+    zone_habitable           = habitable_zone_flag,
+    systeme_multi_planetes   = multi_planet_system,
+    decouverte_recente       = is_recent_discovery,
+    categorie_distance       = dist_category,
+    type_etoile              = star_type,
+    categorie_periode        = orbital_period_cat
   )
 
 cat("Colonnes après renommage :\n")
@@ -75,19 +89,15 @@ planet %>%
        x = "", y = "Effectif")
 ```
 
-### Conclusions des histogrammes
-
-Variables exclues pour raisons statistiques :
+Conclusions des histogrammes :
 - `temp_equilibre_k` (~25% de NA) et `age_etoile_gyr` (~21% de NA) :
-  histogrammes très lacunaires, inclure ces variables forcerait à perdre trop d'observations
-- `nb_etoiles` et `nb_planetes` : distributions quasi-constantes (écrasées sur 1),
-  variance trop faible pour contribuer à l'ACP
-- `ascension_droite` et `declinaison` : coordonnées célestes sans lien avec la problématique
-- `magnitude_visuelle` : dépend de la distance à la Terre, pas une propriété intrinsèque
-
-Variables nécessitant une transformation log :
-- `periode_orbitale_jours`, `demi_grand_axe_ua`, `masse_planete_terre`, `rayon_planete_terre` :
-  distributions très asymétriques avec valeurs extrêmes
+  histogrammes très lacunaires → exclus
+- `nb_etoiles` et `nb_planetes` : distributions quasi-constantes (écrasées sur 1) → exclus
+- `ascension_droite` et `declinaison` : coordonnées célestes sans lien avec la problématique → exclus
+- `magnitude_visuelle` : dépend de la distance à la Terre, pas intrinsèque → exclus
+- `planete_controversee` : quasi-constante (99% de 0) → exclus
+- `periode_orbitale_jours`, `demi_grand_axe_ua`, `masse_planete_terre`,
+  `rayon_planete_terre` : distributions très asymétriques → transformation log
 
 ## 4. Transformations logarithmiques des variables asymétriques
 
@@ -100,7 +110,7 @@ planet$rayon_planete_terre    <- log1p(planet$rayon_planete_terre)
 
 ```{r histogrammes_apres_log, fig.height=6, fig.width=14}
 vars_log <- c("periode_orbitale_jours", "demi_grand_axe_ua",
-              "masse_planete_terre", "rayon_planete_terre")
+              "masse_planete_terre",    "rayon_planete_terre")
 
 planet %>%
   select(all_of(vars_log)) %>%
@@ -116,9 +126,10 @@ planet %>%
 ## 5. Sélection des variables et nettoyage ciblé
 
 On sélectionne d'abord les variables pertinentes pour la problématique,
-PUIS on supprime les NA — et non l'inverse — pour minimiser la perte d'observations.
+PUIS on supprime les NA pour minimiser la perte d'observations.
 
 ```{r selection}
+# Variables actives (entrent dans le calcul de l'ACP)
 vars_actives <- c(
   # Propriétés de la planète
   "periode_orbitale_jours", "rayon_planete_terre", "masse_planete_terre",
@@ -128,10 +139,20 @@ vars_actives <- c(
   "metallicite_etoile", "gravite_surface_etoile"
 )
 
-vars_quali <- c("nom_planete", "etoile_hote", "type_planete")
+# Variables illustratives quantitatives (projetées a posteriori, hors calcul)
+vars_quanti_sup <- c("annee_decouverte", "distance_terre_pc")
 
-planet_sel   <- planet[, c(vars_quali, vars_actives)]
+# Variables illustratives qualitatives (projetées a posteriori, hors calcul)
+vars_quali_sup <- c("type_planete", "type_etoile", "methode_decouverte",
+                    "zone_habitable", "systeme_multi_planetes")
+
+# Sélection et nettoyage
+planet_sel   <- planet[, c(vars_actives, vars_quanti_sup, vars_quali_sup)]
 planet_clean <- na.omit(planet_sel)
+
+# Conversion des booléens en facteurs pour FactoMineR
+planet_clean$zone_habitable        <- as.factor(planet_clean$zone_habitable)
+planet_clean$systeme_multi_planetes <- as.factor(planet_clean$systeme_multi_planetes)
 
 cat("Lignes initiales       :", nrow(planet), "\n")
 cat("Après sélection        :", nrow(planet_sel), "\n")
@@ -141,8 +162,8 @@ cat("Lignes perdues         :", nrow(planet_sel) - nrow(planet_clean), "\n")
 
 ## 6. Matrice de corrélation
 
-Avant l'ACP, on visualise les corrélations pour repérer d'éventuelles
-variables redondantes ou dégénérées.
+Avant l'ACP, on visualise les corrélations pour repérer les relations linéaires
+fortes entre variables actives.
 
 ```{r corrplot, fig.height=7, fig.width=7}
 corrplot(cor(planet_clean[, vars_actives]),
@@ -155,6 +176,22 @@ corrplot(cor(planet_clean[, vars_actives]),
          mar         = c(0, 0, 1, 0))
 ```
 
+On observe plusieurs corrélations notables :
+
+Corrélations fortes positives (> 0.8) :
+- `periode_orbitale_jours` et `demi_grand_axe_ua` (0.91) : ces deux variables
+  évoluent très fortement dans le même sens. L'ACP les placera probablement
+  sur le même axe.
+- `rayon_planete_terre` et `masse_planete_terre` (0.91) : même observation.
+
+Corrélations fortes négatives (< -0.6) :
+- `rayon_etoile_soleil` et `gravite_surface_etoile` (-0.75) : quand le rayon
+  de l'étoile augmente, sa gravité de surface tend à diminuer.
+- `masse_etoile_soleil` et `gravite_surface_etoile` (-0.66) : même tendance.
+
+Ces corrélations élevées suggèrent que certaines dimensions seront redondantes.
+L'ACP va précisément permettre de résumer cette structure en axes indépendants.
+
 ## 7. ACP
 
 `scale.unit = TRUE` centre et réduit toutes les variables (moyenne = 0, écart-type = 1).
@@ -163,10 +200,16 @@ C'est indispensable ici car les variables ont des unités très différentes
 grandes valeurs absolues domineraient artificiellement l'ACP.
 
 ```{r acp}
-res.pca <- PCA(planet_clean[, c(vars_actives, "type_planete")],
-               quali.sup  = "type_planete",
+# Indices des colonnes supplémentaires dans le tableau
+idx_quanti_sup <- (length(vars_actives) + 1):(length(vars_actives) +
+                                               length(vars_quanti_sup))
+idx_quali_sup  <- (length(vars_actives) + length(vars_quanti_sup) + 1):ncol(planet_clean)
+
+res.pca <- PCA(planet_clean,
+               quanti.sup = idx_quanti_sup,
+               quali.sup  = idx_quali_sup,
                scale.unit = TRUE,
-               ncp        = 5,
+               ncp        = 3,
                graph      = FALSE)
 
 res.pca$eig
@@ -184,7 +227,31 @@ fviz_eig(res.pca, addlabels = TRUE, ncp = 10,
          main = "Eboulis des valeurs propres")
 ```
 
-## 9. Contribution des variables par axe
+## 9. Choix des axes retenus
+
+L'éboulis met en évidence la structure suivante :
+Dim 1 : 40,1% — axe dominant, très nettement au-dessus des autres
+Dim 2 : 16,9% — chute importante par rapport à la dimension 1
+Dim 3 : 14,1% — légèrement inférieure à la dimension 2
+Dim 4+  : décroissance régulière et faible (9,5%, 7,2%, 6%...)
+
+Critère de Kaiser (valeur propre > 1, soit > 10% ici) :
+dimensions 1, 2 et 3 dépassent ce seuil → 3 axes.
+
+Critère de l'inertie cumulée :
+- Axes 1+2   = 57,0% → sous le seuil de 60%
+- Axes 1+2+3 = 71,1% → seuil atteint → 3 axes.
+
+Critère du coude :
+la rupture de pente la plus nette se situe entre la dimension 3 (14,1%)
+et la dimension 4 (9,5%), où la courbe s'aplatit durablement → 3 axes.
+
+Les trois critères convergent vers 3 axes. Dans la suite, on se concentre sur
+le plan factoriel des axes 1 et 2 (57% de l'inertie) pour la lisibilité des
+graphiques. L'axe 3 (14,1%) apporte encore une information non négligeable
+mais ne sera pas représenté ici.
+
+## 10. Contribution des variables par axe
 
 Plus le score est élevé, plus la variable contribue à construire cet axe.
 La ligne rouge indique la contribution moyenne attendue si toutes les variables
@@ -199,10 +266,10 @@ for (i in 1:3) {
 }
 ```
 
-## 10. Cercles de corrélation
+## 11. Cercles de corrélation
 
 Sur le cercle de corrélation :
-- Une flèche proche du bord du cercle = variable bien représentée sur ce plan
+- Une flèche proche du bord = variable bien représentée sur ce plan
 - Deux flèches dans la même direction = variables corrélées positivement
 - Deux flèches opposées = variables corrélées négativement
 - Deux flèches perpendiculaires = variables indépendantes
@@ -219,19 +286,71 @@ fviz_pca_var(res.pca, axes = c(1, 3),
              title   = "Cercle de corrélation — Axes 1 & 3")
 ```
 
-## 11. Graphe des individus
+## 12. Graphique des variables — Plan factoriel axes 1 & 2
+
+```{r graph_var_axes, fig.height=6, fig.width=8}
+fviz_pca_var(res.pca,
+             axes          = c(1, 2),
+             col.var       = "cos2",
+             gradient.cols = c("grey", "steelblue", "darkblue"),
+             repel         = TRUE,
+             title         = "Qualité de représentation des variables — Axes 1 & 2")
+```
+
+## 13. Projection des variables illustratives
+
+### Variables quantitatives supplémentaires
+
+```{r proj_quanti_sup}
+# Coordonnées de annee_decouverte et distance_terre_pc sur les axes
+# Plus la coordonnée est élevée en valeur absolue, plus la variable
+# est associée à cet axe — sans pour autant l'avoir construit.
+round(res.pca$quanti.sup$coord, 3)
+```
+
+### Variables qualitatives supplémentaires
+
+Pour chaque variable qualitative illustrative, on projette ses modalités
+sur le plan factoriel. Le centre de chaque ellipse correspond à la position
+moyenne des individus appartenant à cette modalité.
+
+```{r proj_quali_sup, fig.height=6, fig.width=10}
+for (v in vars_quali_sup) {
+  print(
+    fviz_pca_ind(res.pca,
+                 axes          = c(1, 2),
+                 habillage     = v,
+                 label         = "none",
+                 alpha.ind     = 0.3,
+                 addEllipses   = TRUE,
+                 ellipse.level = 0.95,
+                 title         = paste("Individus colorés par :", v))
+  )
+}
+```
+
+## 14. Graphique des individus
 
 ```{r individus, fig.height=6, fig.width=10}
 fviz_pca_ind(res.pca,
-             habillage = "type_planete",
-             label     = "none",
-             alpha.ind = 0.4,
-             title     = "Individus colorés par type de planète")
+             axes          = c(1, 2),
+             habillage     = "type_planete",
+             label         = "none",
+             alpha.ind     = 0.4,
+             addEllipses   = TRUE,
+             ellipse.level = 0.95,
+             title         = "Individus colorés par type de planète")
+```
 
+## 15. Biplot — variables et individus
+
+```{r biplot, fig.height=6, fig.width=10}
 fviz_pca_biplot(res.pca,
-                col.ind = planet_clean$type_planete,
-                col.var = "black",
-                label   = "var",
-                repel   = TRUE,
-                title   = "Biplot — variables et individus")
+                axes      = c(1, 2),
+                col.ind   = planet_clean$type_planete,
+                col.var   = "black",
+                label     = "var",
+                repel     = TRUE,
+                alpha.ind = 0.3,
+                title     = "Biplot — variables et individus")
 ```
