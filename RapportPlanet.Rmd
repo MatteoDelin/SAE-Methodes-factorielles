@@ -1,3 +1,4 @@
+````r
 ---
 title: "Rapport Planet"
 output: html_document
@@ -90,16 +91,27 @@ planet %>%
 ```
 
 Conclusions des histogrammes :
+
 - `temp_equilibre_k` (~25% de NA) et `age_etoile_gyr` (~21% de NA) :
-  histogrammes très lacunaires → exclus
-- `nb_etoiles` et `nb_planetes` : distributions quasi-constantes (écrasées sur 1) → exclus
-- `ascension_droite` et `declinaison` : coordonnées célestes sans lien avec la problématique → exclus
-- `magnitude_visuelle` : dépend de la distance à la Terre, pas intrinsèque → exclus
-- `planete_controversee` : quasi-constante (99% de 0) → exclus
+  histogrammes très lacunaires → exclus des variables actives
+- `nb_etoiles` et `nb_planetes` : distributions quasi-constantes (écrasées sur 1),
+  variance trop faible pour contribuer à l'ACP → exclus
+- `planete_controversee` : quasi-constante (99% de 0) → exclue
+- `ascension_droite` et `declinaison` : coordonnées célestes sans lien
+  avec la problématique → exclues
+- `magnitude_visuelle` : dépend de la distance à la Terre, pas une propriété
+  intrinsèque de l'étoile → exclue
 - `periode_orbitale_jours`, `demi_grand_axe_ua`, `masse_planete_terre`,
-  `rayon_planete_terre` : distributions très asymétriques → transformation log
+  `rayon_planete_terre` : distributions très asymétriques avec valeurs
+  extrêmes → transformation log
 
 ## 4. Transformations logarithmiques des variables asymétriques
+
+`log1p(x)` = `log(x + 1)`. Le +1 évite log(0) qui est indéfini.
+Ces variables ont des distributions en "queue de comète" (ex : periode_orbitale_jours
+va de 0.09 à 400 millions de jours). Sans transformation, les outliers tireraient
+artificiellement un axe ACP vers eux. Le log compresse les grandes valeurs
+et raisonne en ordres de grandeur.
 
 ```{r log_transform}
 planet$periode_orbitale_jours <- log1p(planet$periode_orbitale_jours)
@@ -126,7 +138,12 @@ planet %>%
 ## 5. Sélection des variables et nettoyage ciblé
 
 On sélectionne d'abord les variables pertinentes pour la problématique,
-PUIS on supprime les NA pour minimiser la perte d'observations.
+PUIS on supprime les NA — et non l'inverse — pour minimiser la perte d'observations.
+
+`annee_decouverte` et `distance_terre_pc` sont passées en quantitatives
+supplémentaires (et non actives) car elles décrivent les conditions d'observation
+et non les propriétés physiques intrinsèques. Elles serviront à détecter
+d'éventuels biais d'observation après coup.
 
 ```{r selection}
 # Variables actives (entrent dans le calcul de l'ACP)
@@ -140,6 +157,7 @@ vars_actives <- c(
 )
 
 # Variables illustratives quantitatives (projetées a posteriori, hors calcul)
+# Servent à détecter des biais d'observation
 vars_quanti_sup <- c("annee_decouverte", "distance_terre_pc")
 
 # Variables illustratives qualitatives (projetées a posteriori, hors calcul)
@@ -151,7 +169,7 @@ planet_sel   <- planet[, c(vars_actives, vars_quanti_sup, vars_quali_sup)]
 planet_clean <- na.omit(planet_sel)
 
 # Conversion des booléens en facteurs pour FactoMineR
-planet_clean$zone_habitable        <- as.factor(planet_clean$zone_habitable)
+planet_clean$zone_habitable         <- as.factor(planet_clean$zone_habitable)
 planet_clean$systeme_multi_planetes <- as.factor(planet_clean$systeme_multi_planetes)
 
 cat("Lignes initiales       :", nrow(planet), "\n")
@@ -197,10 +215,12 @@ L'ACP va précisément permettre de résumer cette structure en axes indépendan
 `scale.unit = TRUE` centre et réduit toutes les variables (moyenne = 0, écart-type = 1).
 C'est indispensable ici car les variables ont des unités très différentes
 (jours, kelvin, masses solaires...). Sans cette option, les variables avec les plus
-grandes valeurs absolues domineraient artificiellement l'ACP.
+grandes valeurs absolues domineraient artificiellement l'ACP, indépendamment
+de toute corrélation réelle.
 
 ```{r acp}
 # Indices des colonnes supplémentaires dans le tableau
+# Ordre obligatoire : actives | quanti.sup | quali.sup
 idx_quanti_sup <- (length(vars_actives) + 1):(length(vars_actives) +
                                                length(vars_quanti_sup))
 idx_quali_sup  <- (length(vars_actives) + length(vars_quanti_sup) + 1):ncol(planet_clean)
@@ -230,10 +250,10 @@ fviz_eig(res.pca, addlabels = TRUE, ncp = 10,
 ## 9. Choix des axes retenus
 
 L'éboulis met en évidence la structure suivante :
-Dim 1 : 40,1% — axe dominant, très nettement au-dessus des autres
-Dim 2 : 16,9% — chute importante par rapport à la dimension 1
-Dim 3 : 14,1% — légèrement inférieure à la dimension 2
-Dim 4+  : décroissance régulière et faible (9,5%, 7,2%, 6%...)
+- Dim 1 : 40,1% — axe dominant, très nettement au-dessus des autres
+- Dim 2 : 16,9% — chute importante par rapport à la dimension 1
+- Dim 3 : 14,1% — légèrement inférieure à la dimension 2
+- Dim 4+  : décroissance régulière et faible (9,5%, 7,2%, 6%...)
 
 Critère de Kaiser (valeur propre > 1, soit > 10% ici) :
 dimensions 1, 2 et 3 dépassent ce seuil → 3 axes.
@@ -246,49 +266,48 @@ Critère du coude :
 la rupture de pente la plus nette se situe entre la dimension 3 (14,1%)
 et la dimension 4 (9,5%), où la courbe s'aplatit durablement → 3 axes.
 
-Les trois critères convergent vers 3 axes. Dans la suite, on se concentre sur
-le plan factoriel des axes 1 et 2 (57% de l'inertie) pour la lisibilité des
-graphiques. L'axe 3 (14,1%) apporte encore une information non négligeable
-mais ne sera pas représenté ici.
+Les trois critères convergent vers 3 axes. Dans la suite, on analyse le plan
+factoriel des axes 1 et 2 (57% de l'inertie) puis l'axe 3 (14,1%) séparément.
 
 ## 10. Contribution des variables par axe
 
 Plus le score est élevé, plus la variable contribue à construire cet axe.
 La ligne rouge indique la contribution moyenne attendue si toutes les variables
-contribuaient également (1/nb_variables * 100).
+contribuaient également (1/nb_variables * 100 = 10% ici).
 
 ```{r contrib}
-res.pca$var$contrib
+# Tableau des contributions pour les 3 axes
+round(res.pca$var$contrib[, 1:3], 2)
 
+# Graphiques par axe
 for (i in 1:3) {
   print(fviz_contrib(res.pca, choice = "var", axes = i,
                      title = paste("Contribution des variables — Axe", i)))
 }
 ```
 
-## 11. Cercles de corrélation
+## 11. Cercles de corrélation — Plan (1,2)
 
 Sur le cercle de corrélation :
-- Une flèche proche du bord = variable bien représentée sur ce plan
+- Une flèche proche du bord = variable bien représentée sur ce plan → interprétable
+- Une flèche courte (proche du centre) = variable mal représentée → ne pas interpréter
 - Deux flèches dans la même direction = variables corrélées positivement
 - Deux flèches opposées = variables corrélées négativement
 - Deux flèches perpendiculaires = variables indépendantes
 
-```{r cercles, fig.height=6, fig.width=12}
+```{r cercles_12, fig.height=6, fig.width=8}
 fviz_pca_var(res.pca, axes = c(1, 2),
              col.var = "contrib",
              repel   = TRUE,
              title   = "Cercle de corrélation — Axes 1 & 2")
-
-fviz_pca_var(res.pca, axes = c(1, 3),
-             col.var = "contrib",
-             repel   = TRUE,
-             title   = "Cercle de corrélation — Axes 1 & 3")
 ```
 
-## 12. Graphique des variables — Plan factoriel axes 1 & 2
+## 12. Graphique des variables — Qualité de représentation
 
-```{r graph_var_axes, fig.height=6, fig.width=8}
+La couleur (cos2) indique la qualité de représentation de chaque variable
+sur ce plan : bleu foncé = bien représentée, gris = mal représentée.
+
+```{r graph_var_cos2, fig.height=6, fig.width=8}
 fviz_pca_var(res.pca,
              axes          = c(1, 2),
              col.var       = "cos2",
@@ -297,24 +316,26 @@ fviz_pca_var(res.pca,
              title         = "Qualité de représentation des variables — Axes 1 & 2")
 ```
 
-## 13. Projection des variables illustratives
+## 13. Projection des variables illustratives — Plan (1,2)
 
 ### Variables quantitatives supplémentaires
 
+Ces variables n'ont pas servi à construire les axes. Leurs coordonnées
+(assimilables à des corrélations, entre -1 et 1) indiquent si elles sont
+associées à un axe. Une valeur proche de 0 = pas de biais d'observation.
+Une valeur proche de 1 ou -1 = biais potentiel à mentionner comme limite.
+
 ```{r proj_quanti_sup}
-# Coordonnées de annee_decouverte et distance_terre_pc sur les axes
-# Plus la coordonnée est élevée en valeur absolue, plus la variable
-# est associée à cet axe — sans pour autant l'avoir construit.
 round(res.pca$quanti.sup$coord, 3)
 ```
 
 ### Variables qualitatives supplémentaires
 
-Pour chaque variable qualitative illustrative, on projette ses modalités
-sur le plan factoriel. Le centre de chaque ellipse correspond à la position
-moyenne des individus appartenant à cette modalité.
+Pour chaque variable, les ellipses de confiance à 95% entourent les individus
+de chaque modalité. Des ellipses séparées = cette variable discrimine bien
+les individus sur ce plan.
 
-```{r proj_quali_sup, fig.height=6, fig.width=10}
+```{r proj_quali_sup_12, fig.height=6, fig.width=10}
 for (v in vars_quali_sup) {
   print(
     fviz_pca_ind(res.pca,
@@ -324,14 +345,18 @@ for (v in vars_quali_sup) {
                  alpha.ind     = 0.3,
                  addEllipses   = TRUE,
                  ellipse.level = 0.95,
-                 title         = paste("Individus colorés par :", v))
+                 title         = paste("Plan (1,2) — Individus colorés par :", v))
   )
 }
 ```
 
-## 14. Graphique des individus
+## 14. Graphique des individus — Plan (1,2)
 
-```{r individus, fig.height=6, fig.width=10}
+Chaque point = une exoplanète, positionnée selon ses scores factoriels.
+Les ellipses de confiance à 95% permettent de voir si les types de planètes
+se distinguent bien sur ce plan.
+
+```{r individus_12, fig.height=6, fig.width=10}
 fviz_pca_ind(res.pca,
              axes          = c(1, 2),
              habillage     = "type_planete",
@@ -339,12 +364,16 @@ fviz_pca_ind(res.pca,
              alpha.ind     = 0.4,
              addEllipses   = TRUE,
              ellipse.level = 0.95,
-             title         = "Individus colorés par type de planète")
+             title         = "Individus colorés par type de planète — Plan (1,2)")
 ```
 
-## 15. Biplot — variables et individus
+## 15. Biplot — Plan (1,2)
 
-```{r biplot, fig.height=6, fig.width=10}
+Le biplot superpose variables (flèches) et individus (points) sur le même graphique.
+Un individu dans la direction d'une flèche = valeur élevée pour cette variable.
+Un individu dans la direction opposée = valeur faible.
+
+```{r biplot_12, fig.height=6, fig.width=10}
 fviz_pca_biplot(res.pca,
                 axes      = c(1, 2),
                 col.ind   = planet_clean$type_planete,
@@ -352,5 +381,79 @@ fviz_pca_biplot(res.pca,
                 label     = "var",
                 repel     = TRUE,
                 alpha.ind = 0.3,
-                title     = "Biplot — variables et individus")
+                title     = "Biplot — Plan (1,2)")
 ```
+
+## 16. Analyse de l'axe 3 — Cercles de corrélation
+
+L'axe 3 (14,1% d'inertie) est retenu par les trois critères statistiques.
+Il capte une structure complémentaire aux axes 1 et 2 — des variables ou
+des groupes qui ne se distinguaient pas sur le plan (1,2) peuvent apparaître
+clairement ici.
+
+```{r cercles_axe3, fig.height=6, fig.width=12}
+fviz_pca_var(res.pca, axes = c(1, 3),
+             col.var = "contrib",
+             repel   = TRUE,
+             title   = "Cercle de corrélation — Axes 1 & 3")
+
+fviz_pca_var(res.pca, axes = c(2, 3),
+             col.var = "contrib",
+             repel   = TRUE,
+             title   = "Cercle de corrélation — Axes 2 & 3")
+```
+
+## 17. Contribution des variables à l'axe 3
+
+```{r contrib_axe3}
+print(fviz_contrib(res.pca, choice = "var", axes = 3,
+                   title = "Contribution des variables — Axe 3"))
+```
+
+## 18. Projection des variables illustratives — Plan (1,3)
+
+On reprojette les variables illustratives sur les plans contenant l'axe 3
+pour voir si elles discriminent différemment que sur le plan (1,2).
+Des groupes qui se chevauchaient sur (1,2) peuvent se séparer ici.
+
+```{r proj_quali_axe3, fig.height=6, fig.width=10}
+for (v in vars_quali_sup) {
+  print(
+    fviz_pca_ind(res.pca,
+                 axes          = c(1, 3),
+                 habillage     = v,
+                 label         = "none",
+                 alpha.ind     = 0.3,
+                 addEllipses   = TRUE,
+                 ellipse.level = 0.95,
+                 title         = paste("Plan (1,3) — Individus colorés par :", v))
+  )
+}
+```
+
+## 19. Graphique des individus — Plan (1,3)
+
+```{r individus_13, fig.height=6, fig.width=10}
+fviz_pca_ind(res.pca,
+             axes          = c(1, 3),
+             habillage     = "type_planete",
+             label         = "none",
+             alpha.ind     = 0.4,
+             addEllipses   = TRUE,
+             ellipse.level = 0.95,
+             title         = "Individus colorés par type de planète — Plan (1,3)")
+```
+
+## 20. Biplot — Plan (1,3)
+
+```{r biplot_13, fig.height=6, fig.width=10}
+fviz_pca_biplot(res.pca,
+                axes      = c(1, 3),
+                col.ind   = planet_clean$type_planete,
+                col.var   = "black",
+                label     = "var",
+                repel     = TRUE,
+                alpha.ind = 0.3,
+                title     = "Biplot — Plan (1,3)")
+```
+````

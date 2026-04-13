@@ -312,14 +312,47 @@ Superposition sur un même graphique des **individus** (points colorés) et des 
 
 ### Synthèse : comment répondre à la problématique
 
-La réponse se construit en croisant les parties 13, 14 et 15 :
+La réponse se construit en croisant les parties 13 à 20 :
 
-1. **Les axes sont-ils interprétables ?** (cercle de corrélation, partie 11) → quelles variables structurent l'axe 1 ? l'axe 2 ?
-2. **Les types d'étoiles se séparent-ils sur ces axes ?** (partie 13, `type_etoile`) → si oui, les axes captent bien les différences entre étoiles
-3. **Les types de planètes se séparent-ils ?** (partie 14) → si oui, les planètes ont des profils physiques distincts
-4. **Les flèches étoile et les flèches planète pointent-elles dans des directions cohérentes avec les groupes ?** (partie 15) → si oui, les propriétés planète et étoile sont bien corrélées
+1. **Les axes sont-ils interprétables ?** (cercles de corrélation, parties 11 et 16) → quelles variables structurent chaque axe ?
+2. **Les types d'étoiles se séparent-ils ?** (partie 13, `type_etoile`) → si oui, les axes captent bien les différences entre étoiles
+3. **Les types de planètes se séparent-ils ?** (parties 14 et 19) → si oui, les planètes ont des profils physiques distincts
+4. **Les flèches étoile et planète pointent-elles dans des directions cohérentes ?** (parties 15 et 20) → si oui, les propriétés planète et étoile sont bien corrélées
+5. **L'axe 3 apporte-t-il une information complémentaire ?** (parties 16-20) → des groupes qui se chevauchaient sur (1,2) se séparent-ils sur (1,3) ?
 
 Si les réponses à 2, 3 et 4 sont oui → **réponse à la problématique : oui, les propriétés physiques des exoplanètes sont corrélées aux caractéristiques de leur étoile hôte.**
+
+---
+
+### Parties 16 à 20 — Analyse de l'axe 3
+
+#### Pourquoi analyser l'axe 3 ?
+
+Les trois critères statistiques (Kaiser, inertie cumulée, coude) convergent tous vers **3 axes**. L'axe 3 capte **14,1% de l'inertie**, ce qui est comparable à l'axe 2 (16,9%). L'ignorer reviendrait à passer à côté d'une structure réelle dans les données. Les analyses sur les plans (1,3) et (2,3) sont donc aussi rigoureuses que celles sur le plan (1,2).
+
+#### Comment interpréter l'axe 3 ?
+
+La démarche est **identique** aux axes 1 et 2 :
+
+1. `fviz_contrib` axe 3 (partie 17) → quelles variables contribuent le plus à cet axe ?
+2. Cercles de corrélation (1,3) et (2,3) (partie 16) → dans quelle direction pointent ces variables ?
+3. Variables illustratives sur plan (1,3) (partie 18) → certains groupes se séparent-ils différemment ?
+4. Graphique des individus (1,3) (partie 19) → les types de planètes se distinguent-ils mieux ?
+5. Biplot (1,3) (partie 20) → quelles variables caractérisent quels groupes ?
+
+#### Ce que l'axe 3 peut révéler
+
+L'axe 3 capte une structure **complémentaire et indépendante** des axes 1 et 2. Concrètement :
+
+- Des groupes de planètes qui **se chevauchaient** sur le plan (1,2) peuvent se **séparer clairement** sur le plan (1,3) → l'axe 3 discrimine selon un critère différent
+- Des variables qui contribuaient peu aux axes 1 et 2 peuvent **dominer l'axe 3** → elles portent une information que les premiers axes ne captaient pas (ex : `excentricite_orbitale` ou `metallicite_etoile`)
+- Certaines variables illustratives peuvent mieux discriminer sur (1,3) que sur (1,2) → l'axe 3 peut être plus pertinent pour expliquer `zone_habitable` ou `systeme_multi_planetes` par exemple
+
+#### Ce qu'on écrit dans la note méthodologique
+> *"L'axe 3 (14,1% d'inertie) a été retenu conformément aux trois critères de sélection. Son analyse sur les plans (1,3) et (2,3) révèle que les variables [X et Y, à compléter d'après fviz_contrib axe 3] contribuent majoritairement à cet axe. Cet axe apporte une information complémentaire aux deux premiers en capturant [décrire en fonction du cercle de corrélation]. Des groupes qui se chevauchaient sur le plan (1,2) [se distinguent / ne se distinguent pas davantage] sur le plan (1,3)."*
+
+#### Ce qu'on écrit dans le rapport professionnel
+> *"Une troisième dimension de l'analyse met en évidence [décrire en langage courant ce que l'axe 3 représente — ex : 'la forme des orbites et la composition chimique des étoiles']. Certaines familles de planètes qui apparaissaient proches sur la première carte se distinguent plus clairement sur cette nouvelle représentation, enrichissant ainsi notre compréhension des liens entre planètes et étoiles hôtes."*
 
 ---
 
@@ -375,14 +408,26 @@ Rapport_Planet.Rmd
 │
 ├── 12. Graphique des variables — qualité de représentation (cos2)
 │
-├── 13. Projection des variables illustratives
+├── 13. Projection des variables illustratives — Plan (1,2)
 │   ├── quanti.sup : res.pca$quanti.sup$coord → détection de biais
 │   └── quali.sup : fviz_pca_ind x5 avec ellipses → discrimination
 │
-├── 14. Graphique des individus
+├── 14. Graphique des individus — Plan (1,2)
 │   └── fviz_pca_ind coloré par type_planete avec ellipses
 │
-└── 15. Biplot — variables et individus superposés
+├── 15. Biplot — Plan (1,2)
+│
+├── 16. Analyse de l'axe 3 — Cercles de corrélation (1,3) et (2,3)
+│
+├── 17. Contribution des variables à l'axe 3 (fviz_contrib axe 3)
+│
+├── 18. Projection des variables illustratives — Plan (1,3)
+│   └── quali.sup : fviz_pca_ind x5 avec ellipses sur plan (1,3)
+│
+├── 19. Graphique des individus — Plan (1,3)
+│   └── fviz_pca_ind coloré par type_planete avec ellipses
+│
+└── 20. Biplot — Plan (1,3)
 ```
 
 ---
@@ -396,6 +441,8 @@ Rapport_Planet.Rmd
 - **Log AVANT le nettoyage** : les transformations s'appliquent sur le dataset complet
 - **Renommage EN PREMIER** : tout le code utilise les noms français, jamais les noms originaux anglais
 - **Ne pas interpréter les flèches courtes** sur le cercle de corrélation (mal représentées sur ce plan)
+- **`ncp = 3` dans PCA()** : indispensable pour que l'axe 3 soit calculé et disponible pour les parties 16-20. Avec `ncp = 2`, les graphiques des plans (1,3) et (2,3) planteraient
+- **Les plans (1,3) et (2,3) sont indépendants** : on ne peut pas "lire" le plan (1,3) sans avoir d'abord compris ce que représente l'axe 1 grâce au plan (1,2)
 
 ---
 
