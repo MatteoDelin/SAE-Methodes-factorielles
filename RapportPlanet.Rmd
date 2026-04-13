@@ -13,11 +13,9 @@ library(corrplot)
 library(ggplot2)
 library(tidyr)
 library(dplyr)
-library(gridExtra)
 
 dir.create("exports", showWarnings = FALSE)
 
-# Sauvegarde ET affichage dans le HTML — ggplot
 save_and_show <- function(plot, filename, width = 10, height = 6) {
   ggsave(file.path("exports", filename),
          plot   = plot,
@@ -25,17 +23,6 @@ save_and_show <- function(plot, filename, width = 10, height = 6) {
          height = height,
          dpi    = 300)
   print(plot)
-}
-
-# Sauvegarde ET affichage dans le HTML — deux ggplots côte à côte
-save_and_show_double <- function(p1, p2, filename, width = 16, height = 6) {
-  combined <- gridExtra::arrangeGrob(p1, p2, ncol = 2)
-  ggsave(file.path("exports", filename),
-         plot   = combined,
-         width  = width,
-         height = height,
-         dpi    = 300)
-  gridExtra::grid.arrange(p1, p2, ncol = 2)
 }
 ```
 
@@ -228,50 +215,48 @@ On analyse les plans (1,2) et (1,3) — le plan (2,3) n'est pas retenu.
 
 ## 10. Contribution des variables par axe
 
-```{r contrib, fig.height=5, fig.width=16}
+```{r contrib, fig.height=5, fig.width=8}
 round(res.pca$var$contrib[, 1:3], 2)
 
-p_c1 <- fviz_contrib(res.pca, choice = "var", axes = 1,
-                      title = "Contribution — Axe 1")
-p_c2 <- fviz_contrib(res.pca, choice = "var", axes = 2,
-                      title = "Contribution — Axe 2")
-p_c3 <- fviz_contrib(res.pca, choice = "var", axes = 3,
-                      title = "Contribution — Axe 3")
-
-save_and_show_double(p_c1, p_c2, "05_contrib_axes_1_2.png")
-save_and_show(p_c3, "05_contrib_axe_3.png", width = 8, height = 5)
+for (i in 1:3) {
+  p_contrib <- fviz_contrib(res.pca, choice = "var", axes = i,
+                             title = paste("Contribution des variables — Axe", i))
+  save_and_show(p_contrib,
+                paste0("05_contrib_axe", i, ".png"),
+                width = 8, height = 5)
+}
 ```
 
 ## 11. Cercles de corrélation — Plans (1,2) et (1,3)
 
-```{r cercles, fig.height=6, fig.width=16}
+```{r cercles, fig.height=6, fig.width=8}
 p_var_12 <- fviz_pca_var(res.pca, axes = c(1, 2),
                           col.var = "contrib", repel = TRUE,
                           title   = "Cercle de corrélation — Axes 1 & 2")
+save_and_show(p_var_12, "06_cercle_correlation_12.png")
 
 p_var_13 <- fviz_pca_var(res.pca, axes = c(1, 3),
                           col.var = "contrib", repel = TRUE,
                           title   = "Cercle de corrélation — Axes 1 & 3")
-
-save_and_show_double(p_var_12, p_var_13, "06_cercles_correlation.png")
+save_and_show(p_var_13, "07_cercle_correlation_13.png")
 ```
 
 ## 12. Qualité de représentation des variables — Plans (1,2) et (1,3)
 
-```{r cos2, fig.height=6, fig.width=16}
+```{r cos2, fig.height=6, fig.width=8}
 p_cos2_12 <- fviz_pca_var(res.pca, axes = c(1, 2),
                            col.var       = "cos2",
                            gradient.cols = c("grey", "steelblue", "darkblue"),
                            repel         = TRUE,
                            title         = "Qualité de représentation — Axes 1 & 2")
+save_and_show(p_cos2_12, "08_qualite_representation_12.png")
 
 p_cos2_13 <- fviz_pca_var(res.pca, axes = c(1, 3),
                            col.var       = "cos2",
                            gradient.cols = c("grey", "steelblue", "darkblue"),
                            repel         = TRUE,
                            title         = "Qualité de représentation — Axes 1 & 3")
-
-save_and_show_double(p_cos2_12, p_cos2_13, "07_qualite_representation.png")
+save_and_show(p_cos2_13, "09_qualite_representation_13.png")
 ```
 
 ## 13. Projection des variables illustratives — Plans (1,2) et (1,3)
@@ -284,7 +269,7 @@ round(res.pca$quanti.sup$coord, 3)
 
 ### Variables qualitatives supplémentaires
 
-```{r proj_quali_sup, fig.height=6, fig.width=16}
+```{r proj_quali_sup, fig.height=6, fig.width=10}
 for (v in vars_quali_sup) {
   p_12 <- fviz_pca_ind(res.pca,
                         axes          = c(1, 2),
@@ -294,6 +279,7 @@ for (v in vars_quali_sup) {
                         addEllipses   = TRUE,
                         ellipse.level = 0.95,
                         title         = paste("Plan (1,2) —", v))
+  save_and_show(p_12, paste0("10_quali_sup_12_", v, ".png"))
 
   p_13 <- fviz_pca_ind(res.pca,
                         axes          = c(1, 3),
@@ -303,15 +289,13 @@ for (v in vars_quali_sup) {
                         addEllipses   = TRUE,
                         ellipse.level = 0.95,
                         title         = paste("Plan (1,3) —", v))
-
-  save_and_show_double(p_12, p_13,
-                       paste0("08_quali_sup_", v, ".png"))
+  save_and_show(p_13, paste0("11_quali_sup_13_", v, ".png"))
 }
 ```
 
 ## 14. Graphique des individus — Plans (1,2) et (1,3)
 
-```{r individus, fig.height=6, fig.width=16}
+```{r individus, fig.height=6, fig.width=10}
 p_ind_12 <- fviz_pca_ind(res.pca,
                           axes          = c(1, 2),
                           habillage     = "type_planete",
@@ -320,6 +304,7 @@ p_ind_12 <- fviz_pca_ind(res.pca,
                           addEllipses   = TRUE,
                           ellipse.level = 0.95,
                           title         = "Individus par type de planète — Plan (1,2)")
+save_and_show(p_ind_12, "12_individus_12.png")
 
 p_ind_13 <- fviz_pca_ind(res.pca,
                           axes          = c(1, 3),
@@ -329,13 +314,12 @@ p_ind_13 <- fviz_pca_ind(res.pca,
                           addEllipses   = TRUE,
                           ellipse.level = 0.95,
                           title         = "Individus par type de planète — Plan (1,3)")
-
-save_and_show_double(p_ind_12, p_ind_13, "09_individus.png")
+save_and_show(p_ind_13, "13_individus_13.png")
 ```
 
 ## 15. Biplot — Plans (1,2) et (1,3)
 
-```{r biplot, fig.height=6, fig.width=16}
+```{r biplot, fig.height=6, fig.width=10}
 p_biplot_12 <- fviz_pca_biplot(res.pca,
                                 axes      = c(1, 2),
                                 col.ind   = planet_clean$type_planete,
@@ -344,6 +328,7 @@ p_biplot_12 <- fviz_pca_biplot(res.pca,
                                 repel     = TRUE,
                                 alpha.ind = 0.3,
                                 title     = "Biplot — Plan (1,2)")
+save_and_show(p_biplot_12, "14_biplot_12.png")
 
 p_biplot_13 <- fviz_pca_biplot(res.pca,
                                 axes      = c(1, 3),
@@ -353,6 +338,5 @@ p_biplot_13 <- fviz_pca_biplot(res.pca,
                                 repel     = TRUE,
                                 alpha.ind = 0.3,
                                 title     = "Biplot — Plan (1,3)")
-
-save_and_show_double(p_biplot_12, p_biplot_13, "10_biplots.png")
+save_and_show(p_biplot_13, "15_biplot_13.png")
 ```
